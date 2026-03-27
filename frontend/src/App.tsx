@@ -138,10 +138,22 @@ function App(): JSX.Element {
   const [excalidrawAPI, setExcalidrawAPI] = useState<ExcalidrawAPIRefValue | null>(null)
   const [isConnected, setIsConnected] = useState<boolean>(false)
   const websocketRef = useRef<WebSocket | null>(null)
-  
+
   // Sync state management
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle')
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null)
+
+  // Default scene loaded from /default.excalidraw
+  const [defaultScene, setDefaultScene] = useState<{ elements: any[]; appState: any } | null>(null)
+  const [sceneReady, setSceneReady] = useState(false)
+
+  useEffect(() => {
+    fetch('/default.excalidraw')
+      .then(r => r.json())
+      .then(data => setDefaultScene({ elements: data.elements || [], appState: data.appState || {} }))
+      .catch(() => { /* no default file, start empty */ })
+      .finally(() => setSceneReady(true))
+  }, [])
 
   // WebSocket connection
   useEffect(() => {
@@ -625,6 +637,8 @@ function App(): JSX.Element {
     }
   }
 
+  if (!sceneReady) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'sans-serif', color: '#666' }}>Loading...</div>
+
   return (
     <div className="app">
       {/* Header */}
@@ -672,8 +686,9 @@ function App(): JSX.Element {
         <Excalidraw
           excalidrawAPI={(api: ExcalidrawAPIRefValue) => setExcalidrawAPI(api)}
           initialData={{
-            elements: [],
+            elements: defaultScene?.elements ?? [],
             appState: {
+              ...(defaultScene?.appState ?? {}),
               theme: 'light',
               viewBackgroundColor: '#ffffff'
             }

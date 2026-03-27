@@ -17,5 +17,6 @@ public/dist/
 
 # Development artifacts
 *.excalidraw
+!frontend/public/default.excalidraw
 
 docs/
