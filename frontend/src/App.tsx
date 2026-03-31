@@ -144,9 +144,10 @@ function App(): JSX.Element {
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null)
 
   // Default scene loaded from localStorage (persisted) or /default.excalidraw (first visit)
-  const [defaultScene, setDefaultScene] = useState<{ elements: any[]; appState: any } | null>(null)
+  const [defaultScene, setDefaultScene] = useState<{ elements: any[]; appState: any; files: any } | null>(null)
   const [sceneReady, setSceneReady] = useState(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [cloudSaveStatus, setCloudSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
 
   const STORAGE_KEY = 'architecture-diagram-scene'
 
@@ -156,32 +157,64 @@ function App(): JSX.Element {
       const saved = localStorage.getItem(STORAGE_KEY)
       if (saved) {
         const parsed = JSON.parse(saved)
-        setDefaultScene({ elements: parsed.elements || [], appState: parsed.appState || {} })
+        setDefaultScene({ elements: parsed.elements || [], appState: parsed.appState || {}, files: parsed.files || {} })
         setSceneReady(true)
         return
       }
     } catch {
       // corrupt localStorage — fall through to file
     }
-    // First visit: load the Architecture Diagram file
+    // First visit: load the Architecture Diagram file (including embedded images)
     fetch('/default.excalidraw')
       .then(r => r.json())
-      .then(data => setDefaultScene({ elements: data.elements || [], appState: data.appState || {} }))
+      .then(data => setDefaultScene({ elements: data.elements || [], appState: data.appState || {}, files: data.files || {} }))
       .catch(() => { /* no default file, start empty */ })
       .finally(() => setSceneReady(true))
   }, [])
 
-  // Auto-save to localStorage whenever the canvas changes (debounced 1s)
-  const handleChange = useCallback((elements: readonly any[], appState: any) => {
+  // Auto-save to localStorage whenever the canvas changes (debounced 1s), including image files
+  const handleChange = useCallback((elements: readonly any[], appState: any, files: any) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ elements, appState }))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ elements, appState, files }))
       } catch {
         // storage full or unavailable — ignore
       }
     }, 1000)
   }, [])
+
+  // Save current canvas state back to the Architecture Diagram file on GitHub
+  const saveToGitHub = async (): Promise<void> => {
+    if (!excalidrawAPI) return
+    setCloudSaveStatus('saving')
+    try {
+      const elements = excalidrawAPI.getSceneElements()
+      const appState = excalidrawAPI.getAppState()
+      const files = excalidrawAPI.getFiles()
+      const content = JSON.stringify({
+        type: 'excalidraw',
+        version: 2,
+        source: window.location.origin,
+        elements,
+        appState,
+        files
+      }, null, 2)
+      const res = await fetch('/api/save-diagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content })
+      })
+      if (res.ok) {
+        setCloudSaveStatus('saved')
+        setTimeout(() => setCloudSaveStatus('idle'), 3000)
+      } else {
+        setCloudSaveStatus('error')
+      }
+    } catch {
+      setCloudSaveStatus('error')
+    }
+  }
 
   // WebSocket connection
   useEffect(() => {
@@ -723,6 +756,15 @@ function App(): JSX.Element {
             </div>
           </div>
           
+          <button
+            className={`btn-primary ${cloudSaveStatus === 'saving' ? 'btn-loading' : ''}`}
+            onClick={saveToGitHub}
+            disabled={cloudSaveStatus === 'saving' || !excalidrawAPI}
+            title="Save changes back to the Architecture Diagram file on GitHub"
+          >
+            {cloudSaveStatus === 'saving' && <span className="spinner"></span>}
+            {cloudSaveStatus === 'saving' ? 'Saving...' : cloudSaveStatus === 'saved' ? '✅ Saved' : cloudSaveStatus === 'error' ? '❌ Error' : 'Save Diagram'}
+          </button>
           <button className="btn-secondary" onClick={clearCanvas}>Clear Canvas</button>
         </div>
       </div>
@@ -737,7 +779,8 @@ function App(): JSX.Element {
               ...(defaultScene?.appState ?? {}),
               theme: 'light',
               viewBackgroundColor: '#ffffff'
-            }
+            },
+            files: defaultScene?.files ?? {}
           }}
           onChange={handleChange}
         />
