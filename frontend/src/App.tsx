@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Excalidraw,
   convertToExcalidrawElements,
@@ -143,16 +143,44 @@ function App(): JSX.Element {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle')
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null)
 
-  // Default scene loaded from /default.excalidraw
+  // Default scene loaded from localStorage (persisted) or /default.excalidraw (first visit)
   const [defaultScene, setDefaultScene] = useState<{ elements: any[]; appState: any } | null>(null)
   const [sceneReady, setSceneReady] = useState(false)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const STORAGE_KEY = 'architecture-diagram-scene'
 
   useEffect(() => {
+    // Try localStorage first (returning user — load their saved state)
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        setDefaultScene({ elements: parsed.elements || [], appState: parsed.appState || {} })
+        setSceneReady(true)
+        return
+      }
+    } catch {
+      // corrupt localStorage — fall through to file
+    }
+    // First visit: load the Architecture Diagram file
     fetch('/default.excalidraw')
       .then(r => r.json())
       .then(data => setDefaultScene({ elements: data.elements || [], appState: data.appState || {} }))
       .catch(() => { /* no default file, start empty */ })
       .finally(() => setSceneReady(true))
+  }, [])
+
+  // Auto-save to localStorage whenever the canvas changes (debounced 1s)
+  const handleChange = useCallback((elements: readonly any[], appState: any) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ elements, appState }))
+      } catch {
+        // storage full or unavailable — ignore
+      }
+    }, 1000)
   }, [])
 
   // WebSocket connection
@@ -192,13 +220,31 @@ function App(): JSX.Element {
     }
   }
 
+  const resolveWebSocketUrl = (): string => {
+    // Allow explicit backend URL override for development.
+    const backendUrl = (import.meta as any).env?.VITE_BACKEND_URL as string | undefined
+    if (backendUrl) {
+      const httpUrl = new URL(backendUrl)
+      const wsProtocol = httpUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+      return `${wsProtocol}//${httpUrl.host}`
+    }
+
+    // In Vite dev mode, frontend usually runs on 5173 while backend runs on 3000.
+    if (window.location.port === '5173') {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      return `${wsProtocol}//${window.location.hostname}:3000`
+    }
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${wsProtocol}//${window.location.host}`
+  }
+
   const connectWebSocket = (): void => {
     if (websocketRef.current && websocketRef.current.readyState === WebSocket.OPEN) {
       return
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}`
+    const wsUrl = resolveWebSocketUrl()
     
     websocketRef.current = new WebSocket(wsUrl)
     
@@ -693,6 +739,7 @@ function App(): JSX.Element {
               viewBackgroundColor: '#ffffff'
             }
           }}
+          onChange={handleChange}
         />
       </div>
     </div>
