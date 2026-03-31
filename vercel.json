@@ -4,7 +4,6 @@
   "installCommand": "npm install",
   "framework": null,
   "rewrites": [
-    { "source": "/api/save-diagram", "destination": "/api/save-diagram" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

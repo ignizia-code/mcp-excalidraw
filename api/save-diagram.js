@@ -5,7 +5,7 @@ const OWNER = 'ignizia-code'
 const REPO = 'mcp-excalidraw'
 const FILE_PATH = 'Working projects/Architecture Diagram.excalidraw'
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
