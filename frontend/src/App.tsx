@@ -157,7 +157,7 @@ function App(): JSX.Element {
       const saved = localStorage.getItem(STORAGE_KEY)
       if (saved) {
         const parsed = JSON.parse(saved)
-        setDefaultScene({ elements: parsed.elements || [], appState: parsed.appState || {}, files: parsed.files || {} })
+        setDefaultScene({ elements: parsed.elements || [], appState: {}, files: parsed.files || {} })
         setSceneReady(true)
         return
       }
@@ -172,12 +172,14 @@ function App(): JSX.Element {
       .finally(() => setSceneReady(true))
   }, [])
 
-  // Auto-save to localStorage whenever the canvas changes (debounced 1s), including image files
-  const handleChange = useCallback((elements: readonly any[], appState: any, files: any) => {
+  // Auto-save elements + files to localStorage (debounced 1s)
+  // NOTE: appState is intentionally excluded — it contains non-serializable Map objects
+  // (e.g. collaborators) that crash Excalidraw when restored from plain JSON
+  const handleChange = useCallback((elements: readonly any[], _appState: any, files: any) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ elements, appState, files }))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ elements, files }))
       } catch {
         // storage full or unavailable — ignore
       }

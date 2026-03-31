@@ -3,54 +3,70 @@
 
 const OWNER = 'ignizia-code'
 const REPO = 'mcp-excalidraw'
-// Path within the repo — must match exactly (spaces are encoded for the API)
 const FILE_PATH = 'Working projects/Architecture Diagram.excalidraw'
 
-export default async function handler(req, res) {
-  // Only allow POST
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
+module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+
+  if (req.method === 'OPTIONS') return res.status(200).end()
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+
+  try {
+    const token = process.env.GITHUB_TOKEN
+    if (!token) {
+      return res.status(500).json({ error: 'GITHUB_TOKEN not configured on the server' })
+    }
+
+    // Vercel parses JSON bodies automatically when Content-Type is application/json
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body
+    const content = body && body.content
+    if (!content || typeof content !== 'string') {
+      return res.status(400).json({ error: 'Missing content in request body' })
+    }
+
+    // Encode path segments (handles spaces), preserve slashes
+    const encodedPath = FILE_PATH.split('/').map(encodeURIComponent).join('/')
+    const apiUrl = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodedPath}`
+
+    const ghHeaders = {
+      Authorization: `token ${token}`,
+      Accept: 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'mcp-excalidraw-vercel'
+    }
+
+    // Step 1: get current file SHA (required for GitHub update)
+    const getRes = await fetch(apiUrl, { headers: ghHeaders })
+    if (!getRes.ok) {
+      const errBody = await getRes.text()
+      return res.status(502).json({ error: `GitHub GET failed (${getRes.status}): ${errBody}` })
+    }
+    const fileData = await getRes.json()
+    const sha = fileData.sha
+    if (!sha) {
+      return res.status(502).json({ error: 'Could not retrieve file SHA from GitHub' })
+    }
+
+    // Step 2: push updated content (base64-encoded)
+    const putRes = await fetch(apiUrl, {
+      method: 'PUT',
+      headers: ghHeaders,
+      body: JSON.stringify({
+        message: 'Update Architecture Diagram via Vercel canvas',
+        content: Buffer.from(content, 'utf8').toString('base64'),
+        sha
+      })
+    })
+
+    if (!putRes.ok) {
+      const errBody = await putRes.text()
+      return res.status(502).json({ error: `GitHub PUT failed (${putRes.status}): ${errBody}` })
+    }
+
+    return res.status(200).json({ success: true })
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Internal server error' })
   }
-
-  const token = process.env.GITHUB_TOKEN
-  if (!token) {
-    return res.status(500).json({ error: 'GITHUB_TOKEN not configured on the server' })
-  }
-
-  const { content } = req.body
-  if (!content || typeof content !== 'string') {
-    return res.status(400).json({ error: 'Missing content in request body' })
-  }
-
-  const apiBase = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE_PATH.split('/').map(encodeURIComponent).join('/')}`
-  const headers = {
-    Authorization: `token ${token}`,
-    Accept: 'application/vnd.github.v3+json',
-    'Content-Type': 'application/json',
-    'User-Agent': 'mcp-excalidraw-vercel'
-  }
-
-  // Step 1: get current file SHA (required for update)
-  const getRes = await fetch(apiBase, { headers })
-  if (!getRes.ok) {
-    const err = await getRes.json()
-    return res.status(502).json({ error: `GitHub GET failed: ${err.message}` })
-  }
-  const fileData = await getRes.json()
-  const sha = fileData.sha
-
-  // Step 2: push updated content
-  const body = JSON.stringify({
-    message: 'Update Architecture Diagram via Vercel canvas',
-    content: Buffer.from(content).toString('base64'),
-    sha
-  })
-
-  const putRes = await fetch(apiBase, { method: 'PUT', headers, body })
-  if (!putRes.ok) {
-    const err = await putRes.json()
-    return res.status(502).json({ error: `GitHub PUT failed: ${err.message}` })
-  }
-
-  return res.status(200).json({ success: true })
 }
