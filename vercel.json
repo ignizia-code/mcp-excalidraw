@@ -3,11 +3,6 @@
   "outputDirectory": "dist/frontend",
   "installCommand": "npm install",
   "framework": null,
-  "functions": {
-    "api/save-diagram.js": {
-      "runtime": "nodejs18.x"
-    }
-  },
   "rewrites": [
     { "source": "/api/save-diagram", "destination": "/api/save-diagram" },
     { "source": "/(.*)", "destination": "/index.html" }
